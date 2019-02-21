@@ -505,6 +505,49 @@ describe('Lifecycle methods', () => {
 				value: 3
 			});
 		});
+
+		it('should NOT mutate state, only create new versions', () => {
+			const stateConstant = {};
+			let componentState;
+
+			class Stateful extends Component {
+				static getDerivedStateFromProps() {
+					return {key: 'value'};
+				}
+
+				constructor() {
+					super(...arguments);
+					this.state = stateConstant;
+				}
+
+				componentDidMount() {
+					componentState = this.state;
+				}
+			}
+
+			render(<Stateful />, scratch);
+
+			expect(componentState).to.deep.equal({key: 'value'});
+			expect(stateConstant).to.deep.equal({});
+		});
+
+		it('should use the constructor for `this`', () => {
+			let that = null;
+			class Foo extends Component {
+				constructor(props, context) {
+					super(props, context);
+				}
+				static getDerivedStateFromProps() {
+					that = this;
+					return {};
+				}
+				render() {
+					return <div />;
+				}
+			}
+			render(<Foo />, scratch);
+			expect(that).to.equal(Foo);
+		});
 	});
 
 	describe("#getSnapshotBeforeUpdate", () => {
@@ -994,6 +1037,146 @@ describe('Lifecycle methods', () => {
 				value: 4
 			});
 		});
+
+		it('prevState argument should be the same object if state doesn\'t change', () => {
+			let changeProps, cduPrevState, cduCurrentState;
+
+			class PropsProvider extends Component {
+				constructor() {
+					super();
+					this.state = { value: 0 };
+					changeProps = this.changeReceiverProps.bind(this);
+				}
+				changeReceiverProps() {
+					let value = (this.state.value + 1) % 2;
+					this.setState({
+						value
+					});
+				}
+				render() {
+					return <PropsReceiver value={this.state.value} />;
+				}
+			}
+
+			class PropsReceiver extends Component {
+				componentDidUpdate(prevProps, prevState) {
+					cduPrevState = prevState;
+					cduCurrentState = this.state;
+				}
+				render({ value }) {
+					return <div>{value}</div>;
+				}
+			}
+
+			render(<PropsProvider />, scratch);
+
+			changeProps();
+			rerender();
+
+			expect(cduPrevState).to.equal(cduCurrentState);
+		});
+
+		it('prevState argument should be a different object if state does change', () => {
+			let updateState, cduPrevState, cduCurrentState;
+
+			class Foo extends Component {
+				constructor() {
+					super();
+					this.state = { value: 0 };
+					updateState = this.updateState.bind(this);
+				}
+				updateState() {
+					let value = (this.state.value + 1) % 2;
+					this.setState({
+						value
+					});
+				}
+				componentDidUpdate(prevProps, prevState) {
+					cduPrevState = prevState;
+					cduCurrentState = this.state;
+				}
+				render() {
+					return <div>{this.state.value}</div>;
+				}
+			}
+
+			render(<Foo />, scratch);
+
+			updateState();
+			rerender();
+
+			expect(cduPrevState).to.not.equal(cduCurrentState);
+		});
+
+		it('prevProps argument should be the same object if props don\'t change', () => {
+			let updateState, cduPrevProps, cduCurrentProps;
+
+			class Foo extends Component {
+				constructor() {
+					super();
+					this.state = { value: 0 };
+					updateState = this.updateState.bind(this);
+				}
+				updateState() {
+					let value = (this.state.value + 1) % 2;
+					this.setState({
+						value
+					});
+				}
+				componentDidUpdate(prevProps) {
+					cduPrevProps = prevProps;
+					cduCurrentProps = this.props;
+				}
+				render() {
+					return <div>{this.state.value}</div>;
+				}
+			}
+
+			render(<Foo />, scratch);
+
+			updateState();
+			rerender();
+
+			expect(cduPrevProps).to.equal(cduCurrentProps);
+		});
+
+		it('prevProps argument should be a different object if props do change', () => {
+			let changeProps, cduPrevProps, cduCurrentProps;
+
+			class PropsProvider extends Component {
+				constructor() {
+					super();
+					this.state = { value: 0 };
+					changeProps = this.changeReceiverProps.bind(this);
+				}
+				changeReceiverProps() {
+					let value = (this.state.value + 1) % 2;
+					this.setState({
+						value
+					});
+				}
+				render() {
+					return <PropsReceiver value={this.state.value} />;
+				}
+			}
+
+			class PropsReceiver extends Component {
+				componentDidUpdate(prevProps) {
+					cduPrevProps = prevProps;
+					cduCurrentProps = this.props;
+				}
+				render({ value }) {
+					return <div>{value}</div>;
+				}
+			}
+
+			render(<PropsProvider />, scratch);
+
+			changeProps();
+			rerender();
+
+			expect(cduPrevProps).to.not.equal(cduCurrentProps);
+		});
 	});
 
 
@@ -1186,7 +1369,7 @@ describe('Lifecycle methods', () => {
 	});
 
 
-	describe('shouldComponentUpdate', () => {
+	describe('#shouldComponentUpdate', () => {
 		let setState;
 
 		class Should extends Component {
@@ -1322,10 +1505,118 @@ describe('Lifecycle methods', () => {
 				value: 4
 			});
 		});
+
+		it("should be passed correct this.state for batched setState", () => {
+			/** @type {() => void} */
+			let updateState;
+
+			let curState;
+			let nextStateArg;
+			let shouldComponentUpdateCount = 0;
+
+			class Foo extends Component {
+				constructor(props) {
+					super(props);
+					this.state = {
+						value: 0
+					};
+					updateState = (value) => this.setState({
+						value
+					});
+				}
+				shouldComponentUpdate(nextProps, nextState) {
+					shouldComponentUpdateCount++;
+					nextStateArg = {...nextState};
+					curState = {...this.state};
+					return this.state.value !== nextState.value;
+				}
+				render() {
+					return <div>{this.state.value}</div>;
+				}
+			}
+
+			// Initial render
+			// state.value: initialized to 0 in constructor, 0 -> 1 in gDSFP
+			let element = render(<Foo foo="foo" />, scratch);
+
+			expect(element.textContent).to.be.equal('0');
+			expect(curState).to.be.undefined;
+			expect(nextStateArg).to.be.undefined;
+			expect(shouldComponentUpdateCount).to.be.equal(0);
+
+			// New state
+			// state.value: 'bar2'
+
+			// batch 2 setState calls with same value
+			updateState('bar');
+			updateState('bar2');
+
+			// Expectation:
+			// `this.state` in shouldComponentUpdate should be
+			// the state from last render, before apply batched setState
+
+			rerender();
+			expect(nextStateArg).to.deep.equal({
+				value: 'bar2'
+			});
+			expect(curState).to.deep.equal({
+				value: 0
+			});
+			expect(shouldComponentUpdateCount).to.be.equal(1);
+			expect(element.textContent).to.be.equal('bar2');
+		});
 	});
+
+	describe('#setState', () => {
+		it('should NOT mutate state, only create new versions', () => {
+			const stateConstant = {};
+			let didMount = false;
+			let componentState;
+
+			class Stateful extends Component {
+				constructor() {
+					super(...arguments);
+					this.state = stateConstant;
+				}
+
+				componentDidMount() {
+					didMount = true;
+					this.setState({key: 'value'}, () => {
+						componentState = this.state;
+					});
+				}
+			}
+
+			render(<Stateful />, scratch);
+			rerender();
+
+			expect(didMount).to.equal(true);
+			expect(componentState).to.deep.equal({key: 'value'});
+			expect(stateConstant).to.deep.equal({});
+		});
+	}),
 
 
 	describe('Lifecycle DOM Timing', () => {
+		it('should render in a single microtask', () => {
+			class Counter extends Component {
+				constructor() {
+					super();
+					this.state = { count: 0 };
+				}
+				render(props, { count }) {
+					if (count < 2) {
+						this.setState({ count: count + 1 });
+					}
+					return count;
+				}
+			}
+			render(<Counter />, scratch);
+			rerender();
+			expect(scratch.textContent).to.equal("2");
+			rerender();
+		});
+
 		it('should be invoked when dom does (DidMount, WillUnmount) or does not (WillMount, DidUnmount) exist', () => {
 			let setState;
 			class Outer extends Component {

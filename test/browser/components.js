@@ -113,9 +113,9 @@ describe('Components', () => {
 
 	it('should clone components', () => {
 		function Comp () {}
-		let instance = <Comp/>;
+		let instance = <Comp a />;
 		let clone = cloneElement(instance);
-		expect(clone.prototype).to.equal(instance.prototype);
+		expect(clone).to.deep.equal(instance);
 	});
 
 	it('should render string', () => {
@@ -149,12 +149,6 @@ describe('Components', () => {
 
 		render(<NullComponent />, scratch);
 		expect(scratch.innerHTML).to.equal('');
-	});
-
-	// Test for #651
-	it('should set enumerable boolean attribute', () => {
-		render(<input spellcheck={false} />, scratch);
-		expect(scratch.firstChild.spellcheck).to.equal(false);
 	});
 
 	// Test for Issue #73

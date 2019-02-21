@@ -3,9 +3,11 @@ export as namespace preact;
 
 declare namespace preact {
 	type Key = string | number;
-	type Ref<T> = (instance: T) => void;
-	type ComponentChild = VNode<any> | string | number | null;
-	type ComponentChildren = ComponentChild[] | ComponentChild | object | string | number | null;
+	type RefObject<T> = { current?: T | null };
+	type RefCallback<T> = (instance: T | null) => void;
+	type Ref<T> = RefObject<T> | RefCallback<T>;
+	type ComponentChild = VNode<any> | object | string | number | boolean | null;
+	type ComponentChildren = ComponentChild[] | ComponentChild;
 
 	/**
 	 * @deprecated
@@ -22,7 +24,7 @@ declare namespace preact {
 	type PreactHTMLAttributes = ClassAttributes<any>;
 
 	interface Attributes {
-		key?: string | number | any;
+		key?: Key;
 		jsx?: boolean;
 	}
 
@@ -69,7 +71,7 @@ declare namespace preact {
 	}
 
 	// Type alias for a component considered generally, whether stateless or stateful.
-	type AnyComponent<P = {}, S = {}> = FunctionalComponent<P> | Component<P, S>;
+	type AnyComponent<P = {}, S = {}> = FunctionalComponent<P> | ComponentConstructor<P, S>;
 
 	interface Component<P = {}, S = {}> {
 		componentWillMount?(): void;
@@ -93,28 +95,58 @@ declare namespace preact {
 		context: any;
 		base?: HTMLElement;
 
-		setState<K extends keyof S>(state: Pick<S, K>, callback?: () => void): void;
-		setState<K extends keyof S>(fn: (prevState: S, props: P) => Pick<S, K>, callback?: () => void): void;
+		// From https://github.com/DefinitelyTyped/DefinitelyTyped/blob/e836acc75a78cf0655b5dfdbe81d69fdd4d8a252/types/react/index.d.ts#L402
+		// // We MUST keep setState() as a unified signature because it allows proper checking of the method return type.
+		// // See: https://github.com/DefinitelyTyped/DefinitelyTyped/issues/18365#issuecomment-351013257
+		// // Also, the ` | S` allows intellisense to not be dumbisense
+		setState<K extends keyof S>(
+			state: ((prevState: Readonly<S>, props: Readonly<P>) => (Pick<S, K> | S | null)) | (Pick<S, K> | S | null),
+			callback?: () => void
+		): void;
 
 		forceUpdate(callback?: () => void): void;
 
 		abstract render(props?: RenderableProps<P>, state?: Readonly<S>, context?: any): ComponentChild;
+
+		// Add these variables to avoid descendants shadowing them (some from properties.json for minification)
+		private __key;
+		private __ref;
+		private _component;
+		private _dirty;
+		private _disable;
+		private nextBase;
+		private prevContext;
+		private prevProps;
+		private prevState;
+		private __d;
+		private __x;
+		private __l;
+		private __h;
+		private __k;
+		private __r;
+		private __n;
+		private __b;
+		private __c;
+		private __p;
+		private __s;
+		private __u;
 	}
 
-	function h<P>(
-		node: ComponentFactory<P>,
-		params: Attributes & P | null,
-		...children: ComponentChildren[]
-	): VNode<any>;
 	function h(
 		node: string,
 		params: JSX.HTMLAttributes & JSX.SVGAttributes & Record<string, any> | null,
 		...children: ComponentChildren[]
 	): VNode<any>;
+	function h<P>(
+		node: ComponentFactory<P>,
+		params: Attributes & P | null,
+		...children: ComponentChildren[]
+	): VNode<any>;
 
-	function render(node: ComponentChild, parent: Element | Document, mergeWith?: Element): Element;
+	function render(node: ComponentChild, parent: Element | Document | ShadowRoot | DocumentFragment, mergeWith?: Element): Element;
 	function rerender(): void;
-	function cloneElement(element: JSX.Element, props: any): JSX.Element;
+	function cloneElement(element: JSX.Element, props: any, ...children: ComponentChildren[]): JSX.Element;
+	function createRef<T=any>(): RefObject<T>;
 
 	var options: {
 		syncComponentUpdates?: boolean;
@@ -123,6 +155,15 @@ declare namespace preact {
 		event?: (event: Event) => Event;
 	};
 }
+
+type Defaultize<Props, Defaults> =
+	// Distribute over unions
+	Props extends any
+		? 	// Make any properties included in Default optional
+			& Partial<Pick<Props, Extract<keyof Props, keyof Defaults>>>
+			// Include the remaining properties from Props
+			& Pick<Props, Exclude<keyof Props, keyof Defaults>>
+		: never;
 
 declare global {
 	namespace JSX {
@@ -139,6 +180,11 @@ declare global {
 		interface ElementChildrenAttribute {
 			children: any;
 		}
+
+		type LibraryManagedAttributes<Component, Props> =
+			Component extends { defaultProps: infer Defaults }
+				? Defaultize<Props, Defaults>
+				: Props;
 
 		interface SVGAttributes extends HTMLAttributes {
 			accentHeight?: number | string;
@@ -407,6 +453,7 @@ declare global {
 		interface DOMAttributes extends preact.PreactDOMAttributes {
 			// Image Events
 			onLoad?: GenericEventHandler;
+			onError?: GenericEventHandler;
 			onLoadCapture?: GenericEventHandler;
 
 			// Clipboard Events
@@ -440,6 +487,7 @@ declare global {
 			onSearchCapture?: GenericEventHandler;
 			onSubmit?: GenericEventHandler;
 			onSubmitCapture?: GenericEventHandler;
+			onInvalid?: GenericEventHandler;
 
 			// Keyboard Events
 			onKeyDown?: KeyboardEventHandler;
@@ -849,6 +897,7 @@ declare global {
 			circle: SVGAttributes;
 			clipPath: SVGAttributes;
 			defs: SVGAttributes;
+			desc: SVGAttributes;
 			ellipse: SVGAttributes;
 			feBlend: SVGAttributes;
 			feColorMatrix: SVGAttributes;
